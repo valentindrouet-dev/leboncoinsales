@@ -234,17 +234,9 @@
     thead th .th-inner { display: inline-flex; align-items: center; gap: 5px; }
     thead th .sort-arrow { font-size: 10px; opacity: .5; }
     thead th.sort-asc .sort-arrow, thead th.sort-desc .sort-arrow { opacity: 1; }
-    .td-name-link {
-      font-weight: 600;
-      color: var(--text);
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .td-name-link:hover { color: var(--accent); text-decoration: underline; }
-    tbody tr {
-      border-bottom: 1px solid var(--border);
-      transition: background .1s;
-    }
+    .td-name-link { font-weight: 600; color: var(--text); }
+    tbody tr:hover .td-name-link { color: var(--accent); }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; cursor: pointer; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: #fef8f5; }
     td { padding: 12px 14px; vertical-align: middle; }
@@ -825,16 +817,16 @@ function renderTable() {
     else { pvBadge = `<span class="pv-badge pv-zero">0 €</span>`; }
     const commentIcon = s.commentaire ? `<span title="${escHtml(s.commentaire)}" style="font-size:16px;cursor:default">💬</span>` : '';
 
-    return `<tr>
-      <td><input type="checkbox" ${selectedIds.has(s.id)?'checked':''} onchange="toggleSelect('${s.id}',this)" style="cursor:pointer;accent-color:var(--accent)" /></td>
-      <td><span class="td-name-link" onclick="openEditModal('${s.id}')">${escHtml(s.nom)}</span></td>
+    return `<tr onclick="openEditModal('${s.id}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" ${selectedIds.has(s.id)?'checked':''} onchange="toggleSelect('${s.id}',this)" style="cursor:pointer;accent-color:var(--accent)" /></td>
+      <td class="td-name-link">${escHtml(s.nom)}</td>
       <td class="td-date">${dateStr}</td>
       <td class="td-prix">${s.prix ? parseFloat(s.prix).toFixed(2) + ' €' : '—'}</td>
       <td class="td-achat">${s.prixAchat !== '' && s.prixAchat != null ? parseFloat(s.prixAchat).toFixed(2) + ' €' : '—'}</td>
       <td>${pvBadge}</td>
       <td>${tags || '<span style="color:var(--text3)">—</span>'}</td>
       <td style="text-align:center">${commentIcon}</td>
-      <td><div class="actions">
+      <td onclick="event.stopPropagation()"><div class="actions">
         <button class="icon-btn" title="Modifier" onclick="openEditModal('${s.id}')">✏️</button>
         <button class="icon-btn delete" title="Supprimer" onclick="deleteSale('${s.id}')">🗑</button>
       </div></td>
