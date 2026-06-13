@@ -804,14 +804,17 @@ function getFiltered() {
   });
   const d = sortDir === 'asc' ? 1 : -1;
   filtered.sort((a, b) => {
+    let diff = 0;
     switch (sortCol) {
-      case 'nom':   return d * a.nom.localeCompare(b.nom);
-      case 'date':  return d * (new Date(a.date || 0) - new Date(b.date || 0));
-      case 'prix':  return d * ((parseFloat(a.prix)||0) - (parseFloat(b.prix)||0));
-      case 'achat': return d * ((parseFloat(a.prixAchat)||0) - (parseFloat(b.prixAchat)||0));
-      case 'pv':    return d * ((pv(a) ?? -Infinity) - (pv(b) ?? -Infinity));
-      default: return 0;
+      case 'nom':   diff = a.nom.localeCompare(b.nom); break;
+      case 'date':  diff = new Date(a.date || 0) - new Date(b.date || 0); break;
+      case 'prix':  diff = (parseFloat(a.prix)||0) - (parseFloat(b.prix)||0); break;
+      case 'achat': diff = (parseFloat(a.prixAchat)||0) - (parseFloat(b.prixAchat)||0); break;
+      case 'pv':    diff = (pv(a) ?? -Infinity) - (pv(b) ?? -Infinity); break;
     }
+    if (diff !== 0) return d * diff;
+    // tie-breaker : ordre de saisie (plus récent en premier)
+    return b.id < a.id ? -1 : 1;
   });
   return filtered;
 }
