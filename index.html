@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LeBonCoin Sales</title>
+  <title>Ventes Leboncoin</title>
   <style>
     :root {
       --bg: #f4f5f7;
@@ -226,7 +226,21 @@
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
       background: #fafbfc;
+      user-select: none;
     }
+    thead th.sortable { cursor: pointer; }
+    thead th.sortable:hover { color: var(--text2); background: #f3f4f6; }
+    thead th.sort-asc, thead th.sort-desc { color: var(--accent); background: #fff5f0; }
+    thead th .th-inner { display: inline-flex; align-items: center; gap: 5px; }
+    thead th .sort-arrow { font-size: 10px; opacity: .5; }
+    thead th.sort-asc .sort-arrow, thead th.sort-desc .sort-arrow { opacity: 1; }
+    .td-name-link {
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .td-name-link:hover { color: var(--accent); text-decoration: underline; }
     tbody tr {
       border-bottom: 1px solid var(--border);
       transition: background .1s;
@@ -430,7 +444,7 @@
 <header>
   <a class="logo" href="#">
     <div class="logo-icon">🏷️</div>
-    LBC Sales
+    Ventes Leboncoin
   </a>
   <nav>
     <a class="active" id="tab-ventes" onclick="showTab('ventes')">Ventes</a>
@@ -474,15 +488,6 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="text" id="search" placeholder="Rechercher par nom, mot-clé, commentaire…" oninput="renderTable()" />
       </div>
-      <select class="filter-select" id="sort-select" onchange="renderTable()">
-        <option value="date-desc">Date ↓</option>
-        <option value="date-asc">Date ↑</option>
-        <option value="prix-desc">Prix vente ↓</option>
-        <option value="prix-asc">Prix vente ↑</option>
-        <option value="pv-desc">Plus-value ↓</option>
-        <option value="nom-asc">Nom A→Z</option>
-        <option value="nom-desc">Nom Z→A</option>
-      </select>
     </div>
 
     <div class="filters" id="filters-bar">
@@ -500,13 +505,13 @@
         <thead>
           <tr>
             <th style="width:34px"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" style="cursor:pointer;accent-color:var(--accent)" /></th>
-            <th>Nom</th>
-            <th>Date</th>
-            <th>Prix vente</th>
-            <th>Prix achat</th>
-            <th>Plus-value</th>
+            <th class="sortable" style="min-width:260px" data-col="nom" onclick="sortByCol('nom')"><span class="th-inner">Nom <span class="sort-arrow" id="arrow-nom">↕</span></span></th>
+            <th class="sortable" data-col="date" onclick="sortByCol('date')"><span class="th-inner">Date <span class="sort-arrow" id="arrow-date">↕</span></span></th>
+            <th class="sortable" data-col="prix" onclick="sortByCol('prix')"><span class="th-inner">Prix vente <span class="sort-arrow" id="arrow-prix">↕</span></span></th>
+            <th class="sortable" data-col="achat" onclick="sortByCol('achat')"><span class="th-inner">Prix achat <span class="sort-arrow" id="arrow-achat">↕</span></span></th>
+            <th class="sortable" data-col="pv" onclick="sortByCol('pv')"><span class="th-inner">Plus-value <span class="sort-arrow" id="arrow-pv">↕</span></span></th>
             <th>Mots-clés</th>
-            <th>Commentaire</th>
+            <th style="width:42px" title="Commentaire">💬</th>
             <th style="width:80px"></th>
           </tr>
         </thead>
@@ -551,6 +556,8 @@ let sales = JSON.parse(localStorage.getItem('lbc_sales') || '[]');
 let selectedIds = new Set();
 let editingId = null;
 let activeTagFilter = null;
+let sortCol = 'date';
+let sortDir = 'desc';
 
 function save() { localStorage.setItem('lbc_sales', JSON.stringify(sales)); }
 function genId() { return Date.now() + Math.random().toString(36).slice(2); }
@@ -620,24 +627,44 @@ function updateFilterChips() {
   });
 }
 
+// ── SORT ──────────────────────────────────────────────────────────────────────
+function sortByCol(col) {
+  if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+  else { sortCol = col; sortDir = col === 'nom' ? 'asc' : 'desc'; }
+  renderTable();
+}
+
+function updateSortArrows() {
+  ['nom','date','prix','achat','pv'].forEach(c => {
+    const th = document.querySelector(`th[data-col="${c}"]`);
+    const arrow = document.getElementById('arrow-' + c);
+    if (!th || !arrow) return;
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (sortCol === c) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      arrow.textContent = sortDir === 'asc' ? '↑' : '↓';
+    } else {
+      arrow.textContent = '↕';
+    }
+  });
+}
+
 // ── TABLE ─────────────────────────────────────────────────────────────────────
 function getFiltered() {
   const q = document.getElementById('search').value.toLowerCase().trim();
-  const sort = document.getElementById('sort-select').value;
   let filtered = sales.filter(s => {
     const matchSearch = !q || [s.nom, ...(s.tags || []), s.commentaire || ''].join(' ').toLowerCase().includes(q);
     const matchTag = !activeTagFilter || (s.tags || []).includes(activeTagFilter);
     return matchSearch && matchTag;
   });
+  const d = sortDir === 'asc' ? 1 : -1;
   filtered.sort((a, b) => {
-    switch (sort) {
-      case 'date-desc': return new Date(b.date) - new Date(a.date);
-      case 'date-asc':  return new Date(a.date) - new Date(b.date);
-      case 'prix-desc': return (parseFloat(b.prix)||0) - (parseFloat(a.prix)||0);
-      case 'prix-asc':  return (parseFloat(a.prix)||0) - (parseFloat(b.prix)||0);
-      case 'pv-desc':   return (pv(b) ?? -Infinity) - (pv(a) ?? -Infinity);
-      case 'nom-asc':   return a.nom.localeCompare(b.nom);
-      case 'nom-desc':  return b.nom.localeCompare(a.nom);
+    switch (sortCol) {
+      case 'nom':   return d * a.nom.localeCompare(b.nom);
+      case 'date':  return d * (new Date(a.date || 0) - new Date(b.date || 0));
+      case 'prix':  return d * ((parseFloat(a.prix)||0) - (parseFloat(b.prix)||0));
+      case 'achat': return d * ((parseFloat(a.prixAchat)||0) - (parseFloat(b.prixAchat)||0));
+      case 'pv':    return d * ((pv(a) ?? -Infinity) - (pv(b) ?? -Infinity));
       default: return 0;
     }
   });
@@ -662,16 +689,17 @@ function renderTable() {
     else if (pvVal > 0) { pvBadge = `<span class="pv-badge pv-pos">+${pvVal.toFixed(2)} €</span>`; }
     else if (pvVal < 0) { pvBadge = `<span class="pv-badge pv-neg">${pvVal.toFixed(2)} €</span>`; }
     else { pvBadge = `<span class="pv-badge pv-zero">0 €</span>`; }
+    const commentIcon = s.commentaire ? `<span title="${escHtml(s.commentaire)}" style="font-size:16px;cursor:default">💬</span>` : '';
 
     return `<tr>
       <td><input type="checkbox" ${selectedIds.has(s.id)?'checked':''} onchange="toggleSelect('${s.id}',this)" style="cursor:pointer;accent-color:var(--accent)" /></td>
-      <td class="td-name">${escHtml(s.nom)}</td>
+      <td><span class="td-name-link" onclick="openEditModal('${s.id}')">${escHtml(s.nom)}</span></td>
       <td class="td-date">${dateStr}</td>
       <td class="td-prix">${s.prix ? parseFloat(s.prix).toFixed(2) + ' €' : '—'}</td>
       <td class="td-achat">${s.prixAchat !== '' && s.prixAchat != null ? parseFloat(s.prixAchat).toFixed(2) + ' €' : '—'}</td>
       <td>${pvBadge}</td>
       <td>${tags || '<span style="color:var(--text3)">—</span>'}</td>
-      <td class="td-comment">${escHtml(s.commentaire || '')}</td>
+      <td style="text-align:center">${commentIcon}</td>
       <td><div class="actions">
         <button class="icon-btn" title="Modifier" onclick="openEditModal('${s.id}')">✏️</button>
         <button class="icon-btn delete" title="Supprimer" onclick="deleteSale('${s.id}')">🗑</button>
@@ -682,6 +710,7 @@ function renderTable() {
   updateBulkBar();
   updateStats();
   updateFilterChips();
+  updateSortArrows();
 }
 
 // ── SELECT ────────────────────────────────────────────────────────────────────
