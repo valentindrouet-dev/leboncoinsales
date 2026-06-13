@@ -1130,7 +1130,7 @@ let calcBoites = [];
 
 function openCalc() {
   calcBoites = [{ vendus: '', total: '', prix: '' }];
-  renderCalc();
+  renderCalcBoites();
   document.getElementById('modal-calc').style.display = 'flex';
 }
 function closeCalc() { document.getElementById('modal-calc').style.display = 'none'; }
@@ -1138,44 +1138,27 @@ function closeCalcOnOverlay(e) { if (e.target === document.getElementById('modal
 
 function calcAddBoite() {
   calcBoites.push({ vendus: '', total: '', prix: '' });
-  renderCalc();
+  renderCalcBoites();
 }
 function calcRemoveBoite(i) {
   if (calcBoites.length === 1) return;
   calcBoites.splice(i, 1);
-  renderCalc();
+  renderCalcBoites();
 }
 
 function calcResult(b) {
   const vendus = parseFloat(b.vendus);
-  const total = parseFloat(b.total);
-  const prix = parseFloat(b.prix);
+  const total  = parseFloat(b.total);
+  const prix   = parseFloat(b.prix);
   if (!vendus || !total || !prix || total === 0) return null;
   return (vendus / total) * prix;
 }
 
-function renderCalc() {
+// Rendu complet des boîtes (appelé seulement à l'ajout/suppression d'une boîte)
+function renderCalcBoites() {
   const container = document.getElementById('calc-boites');
-  container.innerHTML = calcBoites.map((b, i) => {
-    const res = calcResult(b);
-    const pct = (b.vendus && b.total && parseFloat(b.total) > 0)
-      ? ((parseFloat(b.vendus) / parseFloat(b.total)) * 100).toFixed(1)
-      : null;
-    const resultHtml = res !== null ? `
-      <div class="calc-result-line">
-        <div>
-          <div class="calc-result-label">Coût de revient</div>
-          <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
-            <span class="calc-result-val">${res.toFixed(2)} €</span>
-            ${pct ? `<span class="calc-result-pct">${pct} % de la boîte</span>` : ''}
-          </div>
-        </div>
-        <div class="calc-result-actions">
-          <button class="btn btn-ghost btn-sm" onclick="calcCopy(${i})" title="Copier le montant">📋 Copier</button>
-        </div>
-      </div>` : '';
-
-    return `<div class="calc-boite">
+  container.innerHTML = calcBoites.map((b, i) => `
+    <div class="calc-boite" id="calc-boite-${i}">
       <div class="calc-boite-header">
         <span class="calc-boite-num">Boîte ${calcBoites.length > 1 ? i + 1 : ''}</span>
         ${calcBoites.length > 1 ? `<button class="icon-btn delete" onclick="calcRemoveBoite(${i})" title="Supprimer">✕</button>` : ''}
@@ -1183,27 +1166,55 @@ function renderCalc() {
       <div class="calc-inputs">
         <div>
           <label>Figurines vendues</label>
-          <input type="number" min="1" step="1" value="${b.vendus}" placeholder="ex. 5" oninput="calcBoites[${i}].vendus=this.value;renderCalc()" />
+          <input type="number" min="1" step="1" value="${b.vendus}" placeholder="ex. 5"
+            oninput="calcBoites[${i}].vendus=this.value; updateCalcResult(${i})" />
         </div>
         <div>
           <label>Total dans la boîte</label>
-          <input type="number" min="1" step="1" value="${b.total}" placeholder="ex. 40" oninput="calcBoites[${i}].total=this.value;renderCalc()" />
+          <input type="number" min="1" step="1" value="${b.total}" placeholder="ex. 40"
+            oninput="calcBoites[${i}].total=this.value; updateCalcResult(${i})" />
         </div>
         <div>
           <label>Prix de la boîte (€)</label>
-          <input type="number" min="0" step="0.01" value="${b.prix}" placeholder="ex. 120" oninput="calcBoites[${i}].prix=this.value;renderCalc()" />
+          <input type="number" min="0" step="0.01" value="${b.prix}" placeholder="ex. 120"
+            oninput="calcBoites[${i}].prix=this.value; updateCalcResult(${i})" />
         </div>
       </div>
-      ${resultHtml}
-    </div>`;
-  }).join('');
+      <div id="calc-result-${i}"></div>
+    </div>`
+  ).join('');
+  updateCalcTotal();
+}
 
-  // total multi-boîtes
+// Met à jour uniquement la zone résultat d'une boîte — sans toucher aux inputs
+function updateCalcResult(i) {
+  const b = calcBoites[i];
+  const res = calcResult(b);
+  const pct = (b.vendus && b.total && parseFloat(b.total) > 0)
+    ? ((parseFloat(b.vendus) / parseFloat(b.total)) * 100).toFixed(1) : null;
+  const el = document.getElementById('calc-result-' + i);
+  if (!el) return;
+  el.innerHTML = res !== null ? `
+    <div class="calc-result-line">
+      <div>
+        <div class="calc-result-label">Coût de revient</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:2px">
+          <span class="calc-result-val">${res.toFixed(2)} €</span>
+          ${pct ? `<span class="calc-result-pct">${pct} % de la boîte</span>` : ''}
+        </div>
+      </div>
+      <div class="calc-result-actions">
+        <button class="btn btn-ghost btn-sm" onclick="calcCopy(${i})">📋 Copier</button>
+      </div>
+    </div>` : '';
+  updateCalcTotal();
+}
+
+function updateCalcTotal() {
   const results = calcBoites.map(calcResult).filter(r => r !== null);
   const totalBar = document.getElementById('calc-total-bar');
   if (calcBoites.length > 1 && results.length > 1) {
-    const total = results.reduce((a, v) => a + v, 0);
-    document.getElementById('calc-total-val').textContent = total.toFixed(2) + ' €';
+    document.getElementById('calc-total-val').textContent = results.reduce((a, v) => a + v, 0).toFixed(2) + ' €';
     totalBar.style.display = 'block';
   } else {
     totalBar.style.display = 'none';
