@@ -513,6 +513,53 @@
     }
     .calc-add-btn:hover { background: var(--accent-light); }
 
+    /* SAUVEGARDE */
+    .restore-banner {
+      background: #fffbe6;
+      border: 1px solid #f0d264;
+      border-left: 4px solid #e5a800;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .restore-banner-txt { flex: 1; min-width: 240px; font-size: 13.5px; line-height: 1.6; color: #6b5200; }
+    .restore-banner-txt strong { color: #4a3800; }
+    .backup-section {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      background: #fafbfc;
+    }
+    .backup-section h3 {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text3);
+      margin-bottom: 6px;
+    }
+    .backup-section p { font-size: 13px; color: var(--text2); line-height: 1.6; margin-bottom: 12px; }
+    .backup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .backup-danger { border-color: #f5c6c6; background: var(--red-bg); }
+    .backup-danger h3 { color: var(--red); }
+    .diag-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 12px;
+      color: var(--text2);
+      line-height: 1.8;
+      word-break: break-all;
+    }
+    .diag-box b { color: var(--text); font-weight: 600; }
+
     /* TOAST */
     .toast-container {
       position: fixed;
@@ -566,12 +613,15 @@
   </nav>
   <div class="header-right">
     <button class="btn btn-ghost-header btn-sm" onclick="openCalc()">🧮 Calculateur coût</button>
-    <button class="btn btn-ghost-header btn-sm" onclick="exportCSV()">⬇ Exporter CSV</button>
+    <button class="btn btn-ghost-header btn-sm" onclick="openBackup()">💾 Sauvegarde</button>
     <button class="btn btn-primary" onclick="openAddModal()">+ Ajouter</button>
   </div>
 </header>
 
 <main>
+  <!-- BANNIÈRE DE RESTAURATION -->
+  <div id="restore-banner" style="display:none"></div>
+
   <!-- STATS CARDS -->
   <div class="stats" id="stats-cards">
     <div class="stat-card">
@@ -665,6 +715,61 @@
   </div>
 </div>
 
+<!-- MODAL SAUVEGARDE -->
+<div class="overlay" id="modal-backup" style="display:none" onclick="closeBackupOnOverlay(event)">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-header">
+      <h2>💾 Sauvegarde &amp; restauration</h2>
+      <button class="icon-btn" onclick="closeBackup()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="backup-section">
+        <h3>Exporter</h3>
+        <p>Télécharge une copie complète de tes ventes. Le format JSON est le seul qui restaure tout à l'identique — garde-le précieusement.</p>
+        <div class="backup-actions">
+          <button class="btn btn-primary" onclick="exportJSON()">⬇ Sauvegarde JSON</button>
+          <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV (tableur)</button>
+        </div>
+      </div>
+
+      <div class="backup-section">
+        <h3>Restaurer</h3>
+        <p>Recharge un fichier de sauvegarde JSON, ou un ancien export CSV si c'est tout ce qu'il te reste. Les ventes déjà présentes sont conservées : seules les nouvelles sont ajoutées.</p>
+        <div class="backup-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('import-file').click()">⬆ Choisir un fichier…</button>
+          <input type="file" id="import-file" accept=".json,.csv" style="display:none" onchange="handleImport(this)" />
+        </div>
+      </div>
+
+      <div class="backup-section" id="snapshot-section" style="display:none">
+        <h3>Instantané automatique</h3>
+        <p id="snapshot-txt"></p>
+        <div class="backup-actions">
+          <button class="btn btn-ghost" onclick="restoreSnapshot()">↩ Restaurer l'instantané</button>
+        </div>
+      </div>
+
+      <div class="backup-section">
+        <h3>Récupération</h3>
+        <p>Passe en revue toutes les clés de stockage de cette adresse et repère celles qui contiennent des ventes, même sous un autre nom.</p>
+        <div class="backup-actions">
+          <button class="btn btn-ghost" onclick="scanStorage()">🔍 Chercher des ventes égarées</button>
+        </div>
+        <div id="scan-result" style="margin-top:12px"></div>
+      </div>
+
+      <div class="backup-section">
+        <h3>Diagnostic</h3>
+        <p>Si tes ventes ont disparu, compare cette adresse avec celle que tu utilisais avant. Une adresse différente = un autre espace de stockage, et les données restent intactes de l'autre côté.</p>
+        <div class="diag-box" id="diag-box"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeBackup()">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CALCULATEUR -->
 <div class="overlay" id="modal-calc" style="display:none" onclick="closeCalcOnOverlay(event)">
   <div class="modal calc-modal">
@@ -704,7 +809,20 @@ let activeTagFilter = null;
 let sortCol = 'date';
 let sortDir = 'desc';
 
-function save() { localStorage.setItem('lbc_sales', JSON.stringify(sales)); }
+const STORAGE_KEY = 'lbc_sales';
+const SNAPSHOT_KEY = 'lbc_sales_snapshot';
+
+// Avant toute écriture, on archive l'état précédent : une mauvaise
+// manipulation reste toujours rattrapable via « Restaurer l'instantané ».
+function save() {
+  try {
+    const prev = localStorage.getItem(STORAGE_KEY);
+    if (prev && prev !== '[]') {
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ date: new Date().toISOString(), data: prev }));
+    }
+  } catch (e) { /* quota plein : on écrit quand même les données */ }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sales));
+}
 function genId() { return Date.now() + Math.random().toString(36).slice(2); }
 function today() { return new Date().toISOString().slice(0, 10); }
 function escHtml(str) {
@@ -1236,8 +1354,201 @@ function calcCopyTotal() {
   navigator.clipboard.writeText(total.toFixed(2)).then(() => toast('Total copié : ' + total.toFixed(2) + ' €', 'success'));
 }
 
+// ── SAUVEGARDE & RESTAURATION ─────────────────────────────────────────────────
+function openBackup() {
+  const snap = readSnapshot();
+  const section = document.getElementById('snapshot-section');
+  if (snap) {
+    const d = new Date(snap.date).toLocaleString('fr-FR');
+    document.getElementById('snapshot-txt').textContent =
+      `Dernier état archivé le ${d} — ${snap.sales.length} vente(s). Utile si une suppression ou un import a mal tourné.`;
+    section.style.display = '';
+  } else {
+    section.style.display = 'none';
+  }
+  document.getElementById('diag-box').innerHTML =
+    `<b>Adresse :</b> ${escHtml(location.origin + location.pathname)}<br>` +
+    `<b>Clés stockées :</b> ${escHtml(Object.keys(localStorage).join(', ') || 'aucune')}<br>` +
+    `<b>Ventes en mémoire :</b> ${sales.length}`;
+  document.getElementById('modal-backup').style.display = 'flex';
+}
+function closeBackup() { document.getElementById('modal-backup').style.display = 'none'; }
+function closeBackupOnOverlay(e) { if (e.target === document.getElementById('modal-backup')) closeBackup(); }
+
+function readSnapshot() {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    const data = JSON.parse(snap.data);
+    if (!Array.isArray(data) || !data.length) return null;
+    return { date: snap.date, sales: data };
+  } catch (e) { return null; }
+}
+
+function restoreSnapshot() {
+  const snap = readSnapshot();
+  if (!snap) return;
+  const added = mergeSales(snap.sales);
+  closeBackup();
+  toast(added ? `${added} vente(s) restaurée(s)` : 'Rien de nouveau à restaurer', added ? 'success' : 'error');
+}
+
+// Fusion sans écrasement : on ne réintroduit pas ce qui est déjà là.
+function mergeSales(incoming) {
+  const seen = new Set(sales.map(s => `${s.nom}|${s.date}|${s.prix}`));
+  let added = 0;
+  incoming.forEach(s => {
+    const key = `${s.nom}|${s.date}|${s.prix}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sales.push({
+      id: s.id || genId(),
+      nom: String(s.nom || '').trim(),
+      date: s.date || '',
+      prix: s.prix ?? '',
+      prixAchat: s.prixAchat ?? '',
+      tags: Array.isArray(s.tags) ? s.tags : parseTags(String(s.tags || '')),
+      commentaire: s.commentaire || ''
+    });
+    added++;
+  });
+  if (added) { save(); renderTable(); dismissRestoreBanner(); }
+  return added;
+}
+
+// Balaie tout le stockage de l'origine courante : une sauvegarde peut
+// avoir atterri sous une autre clé (ancienne version, autre outil…).
+function scanStorage() {
+  const found = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key === STORAGE_KEY) continue;
+    let parsed;
+    try { parsed = JSON.parse(localStorage.getItem(key)); } catch (e) { continue; }
+    const arr = Array.isArray(parsed) ? parsed
+              : (parsed && typeof parsed.data === 'string' ? tryParse(parsed.data) : null);
+    if (!Array.isArray(arr) || !arr.length) continue;
+    const looksLikeSale = arr.some(o => o && typeof o === 'object' && 'nom' in o && ('prix' in o || 'prixAchat' in o));
+    if (looksLikeSale) found.push({ key, count: arr.length, sales: arr });
+  }
+  const el = document.getElementById('scan-result');
+  if (!found.length) {
+    el.innerHTML = `<div class="diag-box">Aucune vente trouvée sous une autre clé à cette adresse.</div>`;
+    return;
+  }
+  scanFound = found;
+  el.innerHTML = found.map((f, i) => `
+    <div class="calc-result-line" style="margin-top:8px">
+      <div>
+        <div class="calc-result-label">Clé « ${escHtml(f.key)} »</div>
+        <div class="calc-result-val" style="font-size:18px">${f.count} vente(s)</div>
+      </div>
+      <div class="calc-result-actions">
+        <button class="btn btn-primary btn-sm" onclick="importScanned(${i})">↩ Récupérer</button>
+      </div>
+    </div>`).join('');
+}
+let scanFound = [];
+function tryParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+function importScanned(i) {
+  const added = mergeSales(scanFound[i].sales);
+  closeBackup();
+  toast(added ? `${added} vente(s) récupérée(s)` : 'Ces ventes sont déjà présentes', added ? 'success' : 'error');
+}
+
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(sales, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ventes-leboncoin-${today()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`Sauvegarde de ${sales.length} vente(s) téléchargée`, 'success');
+}
+
+function handleImport(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text = String(e.target.result);
+      const incoming = file.name.toLowerCase().endsWith('.csv') ? parseCSV(text) : JSON.parse(text);
+      if (!Array.isArray(incoming)) throw new Error('format');
+      const added = mergeSales(incoming);
+      closeBackup();
+      toast(added ? `${added} vente(s) importée(s)` : 'Ces ventes sont déjà présentes', added ? 'success' : 'error');
+    } catch (err) {
+      toast('Fichier illisible ou format inattendu', 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Relit le CSV produit par exportCSV() : séparateur ;, guillemets doublés.
+function parseCSV(text) {
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ';') { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  if (!rows.length) return [];
+
+  // En-tête « Nom;Date;Prix vente;… » ignoré s'il est présent.
+  const start = /^nom$/i.test((rows[0][0] || '').trim()) ? 1 : 0;
+  return rows.slice(start)
+    .filter(r => (r[0] || '').trim())
+    .map(r => ({
+      nom: (r[0] || '').trim(),
+      date: (r[1] || '').trim(),
+      prix: (r[2] || '').trim(),
+      prixAchat: (r[3] || '').trim(),
+      tags: parseTags(r[5] || ''),
+      commentaire: (r[6] || '').trim()
+    }));
+}
+
+// Si l'app démarre à vide alors qu'un instantané existe, on le signale
+// au lieu de laisser croire que tout est perdu.
+function showRestoreBannerIfNeeded() {
+  if (sales.length) return;
+  const snap = readSnapshot();
+  if (!snap) return;
+  const banner = document.getElementById('restore-banner');
+  banner.innerHTML = `
+    <div class="restore-banner">
+      <div class="restore-banner-txt">
+        <strong>${snap.sales.length} vente(s) retrouvées</strong> dans l'instantané du
+        ${new Date(snap.date).toLocaleString('fr-FR')}, alors que la liste est vide.
+        Tu peux les remettre en place.
+      </div>
+      <button class="btn btn-primary" onclick="restoreSnapshot()">↩ Restaurer</button>
+      <button class="btn btn-ghost" onclick="dismissRestoreBanner()">Ignorer</button>
+    </div>`;
+  banner.style.display = '';
+}
+function dismissRestoreBanner() {
+  const b = document.getElementById('restore-banner');
+  b.style.display = 'none';
+  b.innerHTML = '';
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 renderTable();
+showRestoreBannerIfNeeded();
 </script>
 </body>
 </html>
