@@ -684,7 +684,11 @@
       </table>
       <div id="empty-state" class="empty" style="display:none">
         <div class="empty-icon">📦</div>
-        <p>Aucune vente pour l'instant.<br>Cliquez sur <strong>+ Ajouter</strong> pour commencer.</p>
+        <p>Aucune vente pour l'instant.</p>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="openAddModal()" style="background:var(--accent);color:#fff">+ Ajouter des ventes</button>
+          <button class="btn btn-ghost" onclick="pickImportFile()">⬆ Restaurer une sauvegarde (JSON ou CSV)</button>
+        </div>
       </div>
     </div>
 
@@ -702,6 +706,9 @@
 </main>
 
 <div class="toast-container" id="toasts"></div>
+
+<!-- Sélecteur de fichier partagé par tous les boutons d'import -->
+<input type="file" id="import-file" accept=".json,.csv,text/csv,application/json" style="display:none" onchange="handleImport(this)" />
 
 <!-- MODAL -->
 <div class="overlay" id="modal" style="display:none" onclick="closeModalOnOverlay(event)">
@@ -736,8 +743,7 @@
         <h3>Restaurer</h3>
         <p>Recharge un fichier de sauvegarde JSON, ou un ancien export CSV si c'est tout ce qu'il te reste. Les ventes déjà présentes sont conservées : seules les nouvelles sont ajoutées.</p>
         <div class="backup-actions">
-          <button class="btn btn-ghost" onclick="document.getElementById('import-file').click()">⬆ Choisir un fichier…</button>
-          <input type="file" id="import-file" accept=".json,.csv" style="display:none" onchange="handleImport(this)" />
+          <button class="btn btn-primary" onclick="pickImportFile()">⬆ Choisir un fichier…</button>
         </div>
       </div>
 
@@ -1467,58 +1473,129 @@ function exportJSON() {
   toast(`Sauvegarde de ${sales.length} vente(s) téléchargée`, 'success');
 }
 
+function pickImportFile() { document.getElementById('import-file').click(); }
+
 function handleImport(input) {
   const file = input.files && input.files[0];
   input.value = '';
   if (!file) return;
   const reader = new FileReader();
+  reader.onerror = () => toast('Impossible de lire le fichier', 'error');
   reader.onload = e => {
+    const text = String(e.target.result);
+    let incoming;
     try {
-      const text = String(e.target.result);
-      const incoming = file.name.toLowerCase().endsWith('.csv') ? parseCSV(text) : JSON.parse(text);
-      if (!Array.isArray(incoming)) throw new Error('format');
-      const added = mergeSales(incoming);
-      closeBackup();
-      toast(added ? `${added} vente(s) importée(s)` : 'Ces ventes sont déjà présentes', added ? 'success' : 'error');
+      // Le CSV reste possible même si l'extension a été perdue en route.
+      incoming = /^\s*[\[{]/.test(text) ? JSON.parse(text) : parseCSV(text);
+      if (incoming && !Array.isArray(incoming) && Array.isArray(incoming.sales)) incoming = incoming.sales;
     } catch (err) {
-      toast('Fichier illisible ou format inattendu', 'error');
+      incoming = parseCSV(text);
+    }
+    if (!Array.isArray(incoming) || !incoming.length) {
+      toast('Aucune vente reconnue dans ce fichier', 'error');
+      return;
+    }
+    const added = mergeSales(incoming);
+    const skipped = incoming.length - added;
+    closeBackup();
+    if (added) {
+      toast(`${added} vente(s) restaurée(s)` + (skipped ? ` — ${skipped} déjà présente(s)` : ''), 'success');
+    } else {
+      toast(`Les ${incoming.length} ventes du fichier sont déjà présentes`, 'error');
     }
   };
   reader.readAsText(file);
 }
 
-// Relit le CSV produit par exportCSV() : séparateur ;, guillemets doublés.
-function parseCSV(text) {
+// Découpe un CSV en lignes/cellules en respectant les guillemets doublés.
+function csvRows(text, delim) {
   const rows = [];
   let row = [], cell = '', inQuotes = false;
-  const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
     if (inQuotes) {
       if (c === '"') {
-        if (src[i + 1] === '"') { cell += '"'; i++; }
+        if (text[i + 1] === '"') { cell += '"'; i++; }
         else inQuotes = false;
       } else cell += c;
     } else if (c === '"') inQuotes = true;
-    else if (c === ';') { row.push(cell); cell = ''; }
+    else if (c === delim) { row.push(cell); cell = ''; }
     else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
     else cell += c;
   }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  if (!rows.length) return [];
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
 
-  // En-tête « Nom;Date;Prix vente;… » ignoré s'il est présent.
-  const start = /^nom$/i.test((rows[0][0] || '').trim()) ? 1 : 0;
-  return rows.slice(start)
-    .filter(r => (r[0] || '').trim())
-    .map(r => ({
-      nom: (r[0] || '').trim(),
-      date: (r[1] || '').trim(),
-      prix: (r[2] || '').trim(),
-      prixAchat: (r[3] || '').trim(),
-      tags: parseTags(r[5] || ''),
-      commentaire: (r[6] || '').trim()
-    }));
+const normHeader = s => String(s).toLowerCase().normalize('NFD')
+  .replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '');
+
+// « Note » (ancienne notation en étoiles) et « Plus-value » (recalculée)
+// n'ont volontairement pas d'alias : elles sont ignorées à l'import.
+const CSV_ALIASES = {
+  nom:         ['nom', 'name', 'titre', 'article', 'objet', 'designation'],
+  date:        ['date', 'datevente', 'datedevente'],
+  prix:        ['prixvente', 'prixdevente', 'prix', 'vente', 'montant'],
+  prixAchat:   ['prixachat', 'prixdachat', 'achat', 'cout', 'coutderevient'],
+  tags:        ['motscles', 'motcle', 'tags', 'tag', 'categorie', 'categories'],
+  commentaire: ['commentaire', 'commentaires', 'remarque', 'description']
+};
+
+function csvHeaderMap(row) {
+  const map = {};
+  row.forEach((cell, i) => {
+    const n = normHeader(cell);
+    for (const field in CSV_ALIASES) {
+      if (map[field] === undefined && CSV_ALIASES[field].includes(n)) { map[field] = i; return; }
+    }
+  });
+  return map;
+}
+
+function csvNum(s) {
+  if (!s) return '';
+  const n = parseFloat(s.replace(/[^\d,.\-]/g, '').replace(',', '.'));
+  return isNaN(n) ? '' : String(n);
+}
+
+function csvDate(s) {
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/); // 07/07/2026
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : s;
+}
+
+// Accepte les exports de toutes les versions de l'app, quel que soit
+// l'ordre des colonnes, le séparateur et le format des dates/nombres.
+function parseCSV(text) {
+  const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
+  if (!src) return [];
+
+  // On retient le séparateur dont l'en-tête livre le plus de colonnes connues.
+  let rows = null, map = null, best = -1;
+  [';', ',', '\t'].forEach(d => {
+    const r = csvRows(src, d);
+    if (!r.length) return;
+    const m = csvHeaderMap(r[0]);
+    const score = Object.keys(m).length;
+    if (score > best) { best = score; rows = r; map = m; }
+  });
+  if (!rows) return [];
+
+  // Sans en-tête reconnaissable, on retombe sur l'ordre du dernier export.
+  const hasHeader = map.nom !== undefined;
+  if (!hasHeader) map = { nom: 0, date: 1, prix: 2, prixAchat: 3, tags: 5, commentaire: 6 };
+  const body = hasHeader ? rows.slice(1) : rows;
+
+  const val = (r, k) => map[k] === undefined ? '' : String(r[map[k]] ?? '').trim();
+  return body.map(r => ({
+    nom: val(r, 'nom'),
+    date: csvDate(val(r, 'date')),
+    prix: csvNum(val(r, 'prix')),
+    prixAchat: csvNum(val(r, 'prixAchat')),
+    tags: parseTags(val(r, 'tags')),
+    commentaire: val(r, 'commentaire')
+  })).filter(s => s.nom);
 }
 
 // Si l'app démarre à vide alors qu'un instantané existe, on le signale
