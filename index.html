@@ -239,6 +239,10 @@
     tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; cursor: pointer; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: #fef8f5; }
+    tbody tr.row-okkazeo { background: #effaf3; }
+    tbody tr.row-okkazeo:hover { background: #e3f5eb; }
+    .okz-check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px; color: var(--text2); user-select: none; }
+    .okz-check input { accent-color: var(--green); width: 16px; height: 16px; cursor: pointer; }
     td { padding: 12px 14px; vertical-align: middle; }
     .td-name { font-weight: 600; color: var(--text); }
     .td-date { color: var(--text2); white-space: nowrap; font-size: 13px; }
@@ -369,6 +373,7 @@
     .entry-table .col-achat { width: 95px; }
     .entry-table .col-mots { min-width: 160px; }
     .entry-table .col-txt { min-width: 150px; }
+    .entry-table .col-okz { width: 74px; text-align: center; }
     .entry-table .col-del { width: 36px; text-align: center; }
     .cell-wrap { position: relative; }
     .copy-above {
@@ -963,7 +968,7 @@ function renderTable() {
     else { pvBadge = `<span class="pv-badge pv-zero">0 €</span>`; }
     const commentIcon = s.commentaire ? `<span title="${escHtml(s.commentaire)}" style="font-size:16px;cursor:default">💬</span>` : '';
 
-    return `<tr onclick="openEditModal('${s.id}')">
+    return `<tr class="${s.okkazeo ? 'row-okkazeo' : ''}" onclick="openEditModal('${s.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" ${selectedIds.has(s.id)?'checked':''} onchange="toggleSelect('${s.id}',this)" style="cursor:pointer;accent-color:var(--accent)" /></td>
       <td class="td-name-link">${escHtml(s.nom)}</td>
       <td class="td-date">${dateStr}</td>
@@ -1022,7 +1027,7 @@ function openAddModal() {
   document.getElementById('modal').style.display = 'flex';
 }
 
-function newRow() { return { nom: '', date: today(), prix: '', prixAchat: '', tags: [], commentaire: '' }; }
+function newRow() { return { nom: '', date: today(), prix: '', prixAchat: '', tags: [], commentaire: '', okkazeo: false }; }
 
 function renderAddModal() {
   document.getElementById('modal-body').innerHTML = `
@@ -1035,6 +1040,7 @@ function renderAddModal() {
         <th class="col-achat">Prix achat (€)</th>
         <th class="col-mots">Mots-clés</th>
         <th class="col-txt">Commentaire</th>
+        <th class="col-okz">Okkazeo</th>
         <th class="col-del"></th>
       </tr></thead>
       <tbody id="add-rows"></tbody>
@@ -1071,6 +1077,7 @@ function renderRows() {
       <td class="col-achat"><div class="cell-wrap">${ca('prixAchat','Prix achat')}<input type="number" step="0.01" min="0" value="${r.prixAchat}" placeholder="0.00" oninput="rows[${i}].prixAchat=this.value" /></div></td>
       <td class="col-mots"><div class="cell-wrap">${ca('tags','Mots-clés')}<input type="text" value="${(r.tags||[]).join(', ')}" placeholder="jeu, électro…" oninput="rows[${i}].tags=parseTags(this.value)" /></div></td>
       <td class="col-txt"><div class="cell-wrap">${ca('commentaire','Commentaire')}<textarea placeholder="Commentaire…" oninput="rows[${i}].commentaire=this.value">${escHtml(r.commentaire||'')}</textarea></div></td>
+      <td class="col-okz"><input type="checkbox" ${r.okkazeo?'checked':''} onchange="rows[${i}].okkazeo=this.checked" style="accent-color:var(--green);width:16px;height:16px;cursor:pointer" title="Vendu sur Okkazeo" /></td>
       <td class="col-del"><button class="icon-btn delete" onclick="removeRow(${i})" ${rows.length===1?'disabled':''}>✕</button></td>
     </tr>`;
   }).join('');
@@ -1082,7 +1089,7 @@ function removeRow(i) { if (rows.length === 1) return; rows.splice(i, 1); render
 function saveAll() {
   const valid = rows.filter(r => r.nom.trim());
   if (!valid.length) { toast('Renseignez au moins un nom', 'error'); return; }
-  valid.forEach(r => sales.push({ id: genId(), nom: r.nom.trim(), date: r.date, prix: r.prix, prixAchat: r.prixAchat, tags: r.tags, commentaire: r.commentaire }));
+  valid.forEach(r => sales.push({ id: genId(), nom: r.nom.trim(), date: r.date, prix: r.prix, prixAchat: r.prixAchat, tags: r.tags, commentaire: r.commentaire, okkazeo: !!r.okkazeo }));
   save(); closeModal(); renderTable();
   toast(`${valid.length} vente${valid.length > 1 ? 's' : ''} ajoutée${valid.length > 1 ? 's' : ''}`, 'success');
 }
@@ -1122,6 +1129,12 @@ function openEditModal(id) {
       <label>Commentaire</label>
       <textarea class="form-control" id="e-comment" rows="3" placeholder="Notes, acheteur, état…">${escHtml(s.commentaire||'')}</textarea>
     </div>
+    <div class="form-group">
+      <label class="okz-check">
+        <input type="checkbox" id="e-okkazeo" ${s.okkazeo ? 'checked' : ''} />
+        Vendu sur Okkazeo
+      </label>
+    </div>
   `;
   document.getElementById('modal-footer').innerHTML = `
     <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
@@ -1141,6 +1154,7 @@ function saveEdit() {
   s.prixAchat = document.getElementById('e-achat').value;
   s.tags = parseTags(document.getElementById('e-tags').value);
   s.commentaire = document.getElementById('e-comment').value;
+  s.okkazeo = document.getElementById('e-okkazeo').checked;
   save(); closeModal(); renderTable();
   toast('Vente modifiée', 'success');
 }
@@ -1221,7 +1235,7 @@ function renderStatsDetail() {
 
 // ── EXPORT CSV ────────────────────────────────────────────────────────────────
 function exportCSV() {
-  const header = ['Nom', 'Date', 'Prix vente', 'Prix achat', 'Plus-value', 'Mots-clés', 'Commentaire'];
+  const header = ['Nom', 'Date', 'Prix vente', 'Prix achat', 'Plus-value', 'Mots-clés', 'Commentaire', 'Okkazeo'];
   const csvRows = sales.map(s => {
     const p = pv(s);
     return [
@@ -1231,7 +1245,8 @@ function exportCSV() {
       s.prixAchat || '',
       p !== null ? p.toFixed(2) : '',
       `"${(s.tags||[]).join(', ')}"`,
-      `"${(s.commentaire||'').replace(/"/g,'""')}"`
+      `"${(s.commentaire||'').replace(/"/g,'""')}"`,
+      s.okkazeo ? 'oui' : ''
     ].join(';');
   });
   const csv = [header.join(';'), ...csvRows].join('\n');
@@ -1415,7 +1430,8 @@ function mergeSales(incoming) {
       prix: s.prix ?? '',
       prixAchat: s.prixAchat ?? '',
       tags: Array.isArray(s.tags) ? s.tags : parseTags(String(s.tags || '')),
-      commentaire: s.commentaire || ''
+      commentaire: s.commentaire || '',
+      okkazeo: !!s.okkazeo
     });
     added++;
   });
@@ -1538,7 +1554,8 @@ const CSV_ALIASES = {
   prix:        ['prixvente', 'prixdevente', 'prix', 'vente', 'montant'],
   prixAchat:   ['prixachat', 'prixdachat', 'achat', 'cout', 'coutderevient'],
   tags:        ['motscles', 'motcle', 'tags', 'tag', 'categorie', 'categories'],
-  commentaire: ['commentaire', 'commentaires', 'remarque', 'description']
+  commentaire: ['commentaire', 'commentaires', 'remarque', 'description'],
+  okkazeo:     ['okkazeo', 'okazeo']
 };
 
 function csvHeaderMap(row) {
@@ -1594,7 +1611,8 @@ function parseCSV(text) {
     prix: csvNum(val(r, 'prix')),
     prixAchat: csvNum(val(r, 'prixAchat')),
     tags: parseTags(val(r, 'tags')),
-    commentaire: val(r, 'commentaire')
+    commentaire: val(r, 'commentaire'),
+    okkazeo: /^(oui|yes|true|1|x|vrai)$/i.test(val(r, 'okkazeo'))
   })).filter(s => s.nom);
 }
 
